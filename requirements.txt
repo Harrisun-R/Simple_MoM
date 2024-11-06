@@ -2,5 +2,5 @@ streamlit
 sounddevice==0.4.6
 scipy==1.9.3
 transformers==4.33.0
-torch==1.13.1
+torch
 SpeechRecognition==3.8.1
