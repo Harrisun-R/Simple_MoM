@@ -3,4 +3,4 @@ sounddevice==0.4.6
 scipy
 transformers==4.33.0
 torch
-SpeechRecognition==3.8.1
+SpeechRecognition
