@@ -4,3 +4,4 @@ scipy
 transformers==4.33.0
 torch
 SpeechRecognition
+tokenizers
