@@ -1,80 +1,73 @@
 import streamlit as st
+import sounddevice as sd
+import scipy.io.wavfile as wav
+import numpy as np
+from io import BytesIO
 import speech_recognition as sr
-from pydub import AudioSegment
-import os
-import wave
+from transformers import pipeline
+import tempfile
 
-st.title("Minutes of Meeting Generator")
+# Initialize Hugging Face pipeline for summarization
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
-# Function to transcribe audio
-def transcribe_audio(audio_file):
+def record_audio(duration=30, sample_rate=16000):
+    st.write("Recording...")
+    audio_data = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1)
+    sd.wait()  # Wait until recording is finished
+    st.write("Recording finished.")
+    return audio_data
+
+def save_audio_file(audio_data, sample_rate):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+        wav.write(f.name, sample_rate, audio_data)
+        return f.name
+
+def transcribe_audio(file_path):
     recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file) as source:
-        audio = recognizer.record(source)
-        try:
-            transcription = recognizer.recognize_google(audio)
-            return transcription
-        except sr.UnknownValueError:
-            return "Google Speech Recognition could not understand the audio"
-        except sr.RequestError as e:
-            return f"Could not request results from Google Speech Recognition service; {e}"
+    with sr.AudioFile(file_path) as source:
+        audio_data = recognizer.record(source)
+        text = recognizer.recognize_google(audio_data)
+    return text
+
+def summarize_text(text):
+    # Limit text to 1024 tokens for summarization model
+    max_input_length = 1024
+    input_text = text[:max_input_length] if len(text) > max_input_length else text
+    summary = summarizer(input_text, max_length=100, min_length=30, do_sample=False)
+    return summary[0]["summary_text"]
+
+# Streamlit UI
+st.title("Meeting Minutes Generator (No FFmpeg)")
 
 # Option to upload audio file
-st.header("Upload your audio file")
-uploaded_file = st.file_uploader("Choose an audio file", type=["wav", "mp3"])
+uploaded_file = st.file_uploader("Upload an audio file", type=["wav"])
 
-if uploaded_file is not None:
-    # Save the uploaded file to disk
-    with open("temp_audio_file", "wb") as f:
-        f.write(uploaded_file.getbuffer())
+# Option to record audio
+if st.button("Record from Microphone"):
+    audio_duration = st.slider("Select recording duration (seconds)", min_value=10, max_value=60, value=30)
+    sample_rate = 16000
+    audio_data = record_audio(duration=audio_duration, sample_rate=sample_rate)
+    file_path = save_audio_file(audio_data, sample_rate)
+    st.success("Audio recorded successfully.")
+    transcript = transcribe_audio(file_path)
+    st.write("### Transcription")
+    st.write(transcript)
     
-    # Convert the file to wav format if necessary
-    if uploaded_file.type == "audio/mp3":
-        audio = AudioSegment.from_mp3("temp_audio_file")
-        audio.export("temp_audio_file.wav", format="wav")
-        audio_file = "temp_audio_file.wav"
-    else:
-        audio_file = "temp_audio_file"
+    if st.button("Generate Meeting Minutes"):
+        summary = summarize_text(transcript)
+        st.write("### Meeting Minutes")
+        st.write(summary)
 
-    # Transcribe the audio file
-    transcription = transcribe_audio(audio_file)
-    st.header("Transcription")
-    st.write(transcription)
-
-    # Generate Minutes of Meeting
-    st.header("Minutes of the Meeting")
-    lines = transcription.split('.')
-    for i, line in enumerate(lines):
-        st.write(f"{i + 1}. {line.strip()}")
-
-    # Clean up the temporary files
-    os.remove("temp_audio_file")
-    if uploaded_file.type == "audio/mp3":
-        os.remove("temp_audio_file.wav")
-
-# Option to record audio from microphone
-st.header("Record audio from your microphone")
-if st.button("Start Recording"):
-    recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        st.write("Recording... Please speak clearly into the microphone.")
-        audio = recognizer.listen(source)
-        st.write("Recording complete.")
-
-    # Save the recorded audio to a wav file
-    with open("microphone_audio.wav", "wb") as f:
-        f.write(audio.get_wav_data())
-
-    # Transcribe the recorded audio
-    transcription = transcribe_audio("microphone_audio.wav")
-    st.header("Transcription")
-    st.write(transcription)
-
-    # Generate Minutes of Meeting
-    st.header("Minutes of the Meeting")
-    lines = transcription.split('.')
-    for i, line in enumerate(lines):
-        st.write(f"{i + 1}. {line.strip()}")
-
-    # Clean up the temporary file
-    os.remove("microphone_audio.wav")
+# Transcription from uploaded file
+if uploaded_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
+        f.write(uploaded_file.read())
+        file_path = f.name
+    transcript = transcribe_audio(file_path)
+    st.write("### Transcription")
+    st.write(transcript)
+    
+    if st.button("Generate Meeting Minutes from File"):
+        summary = summarize_text(transcript)
+        st.write("### Meeting Minutes")
+        st.write(summary)
